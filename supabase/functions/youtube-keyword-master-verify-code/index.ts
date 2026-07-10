@@ -27,6 +27,25 @@ function clientIp(request: Request) {
   return forwarded.split(',')[0].trim() || request.headers.get('x-real-ip') || '';
 }
 
+async function reuseSimilarDevice(supabase: any, code: string, deviceId: string, ip: string, userAgent: string) {
+  if (!ip || !userAgent) return false;
+  const { data: similar } = await supabase
+    .from('youtube_keyword_master_code_devices')
+    .select('id')
+    .eq('code', code)
+    .eq('ip', ip)
+    .eq('user_agent', userAgent)
+    .order('last_seen', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!similar) return false;
+  await supabase
+    .from('youtube_keyword_master_code_devices')
+    .update({ device_id: deviceId, last_seen: new Date().toISOString(), ip, user_agent: userAgent })
+    .eq('id', similar.id);
+  return true;
+}
+
 // 코드+기기 검증: 활성/미만료 코드인지 확인하고, 기기 토큰이 이미 바인딩돼 있으면 통과,
 // 아니면 허용 기기 수 미만일 때만 새 기기를 바인딩한다. 코드 공유는 기기 수 제한으로 차단된다.
 // analyze 함수와 동일 로직이지만 배포 단위가 분리되어 각 함수에 중복 정의한다.
@@ -57,6 +76,10 @@ export async function verifyAccessCode(supabase: any, code: string, deviceId: st
     return { ok: true, isAdmin: record.is_admin === true, label: record.label || '' };
   }
 
+  if (await reuseSimilarDevice(supabase, code, deviceId, ip, userAgent)) {
+    return { ok: true, isAdmin: record.is_admin === true, label: record.label || '' };
+  }
+
   const { count } = await supabase
     .from('youtube_keyword_master_code_devices')
     .select('id', { count: 'exact', head: true })
@@ -66,6 +89,9 @@ export async function verifyAccessCode(supabase: any, code: string, deviceId: st
   const { error: insertError } = await supabase
     .from('youtube_keyword_master_code_devices')
     .insert({ code, device_id: deviceId, ip, user_agent: userAgent });
+  if (String(insertError?.code) === '23505' && await reuseSimilarDevice(supabase, code, deviceId, ip, userAgent)) {
+    return { ok: true, isAdmin: record.is_admin === true, label: record.label || '' };
+  }
   // 동시 요청으로 unique 충돌(23505) 시엔 이미 바인딩된 것으로 보고 통과시킨다.
   if (insertError && String(insertError.code) !== '23505') return { ok: false, reason: 'error' };
   return { ok: true, isAdmin: record.is_admin === true, label: record.label || '' };

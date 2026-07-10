@@ -27,6 +27,25 @@ function clientIp(request: Request) {
   return forwarded.split(',')[0].trim() || request.headers.get('x-real-ip') || '';
 }
 
+async function reuseSimilarDevice(supabase: any, code: string, deviceId: string, ip: string, userAgent: string) {
+  if (!ip || !userAgent) return false;
+  const { data: similar } = await supabase
+    .from('youtube_keyword_master_code_devices')
+    .select('id')
+    .eq('code', code)
+    .eq('ip', ip)
+    .eq('user_agent', userAgent)
+    .order('last_seen', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!similar) return false;
+  await supabase
+    .from('youtube_keyword_master_code_devices')
+    .update({ device_id: deviceId, last_seen: new Date().toISOString(), ip, user_agent: userAgent })
+    .eq('id', similar.id);
+  return true;
+}
+
 // 접근 코드+기기 검증(verify-code 함수와 동일 로직, 배포 단위 분리로 중복 정의).
 // 유효/활성/미만료 코드이고 기기가 이미 바인딩됐거나 허용 기기 수 미만일 때만 통과한다.
 async function verifyAccessCode(supabase: any, code: string, deviceId: string, ip: string, userAgent: string) {
@@ -52,6 +71,9 @@ async function verifyAccessCode(supabase: any, code: string, deviceId: string, i
       .eq('id', existing.id);
     return { ok: true, isAdmin: record.is_admin === true };
   }
+  if (await reuseSimilarDevice(supabase, code, deviceId, ip, userAgent)) {
+    return { ok: true, isAdmin: record.is_admin === true };
+  }
   const { count } = await supabase
     .from('youtube_keyword_master_code_devices')
     .select('id', { count: 'exact', head: true })
@@ -60,6 +82,9 @@ async function verifyAccessCode(supabase: any, code: string, deviceId: string, i
   const { error: insertError } = await supabase
     .from('youtube_keyword_master_code_devices')
     .insert({ code, device_id: deviceId, ip, user_agent: userAgent });
+  if (String(insertError?.code) === '23505' && await reuseSimilarDevice(supabase, code, deviceId, ip, userAgent)) {
+    return { ok: true, isAdmin: record.is_admin === true };
+  }
   if (insertError && String(insertError.code) !== '23505') return { ok: false, reason: 'error' };
   return { ok: true, isAdmin: record.is_admin === true };
 }

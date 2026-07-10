@@ -27,6 +27,25 @@ function clientIp(request: Request) {
   return forwarded.split(',')[0].trim() || request.headers.get('x-real-ip') || '';
 }
 
+async function reuseSimilarDevice(supabase: any, code: string, deviceId: string, ip: string, userAgent: string) {
+  if (!ip || !userAgent) return false;
+  const { data: similar } = await supabase
+    .from('youtube_keyword_master_code_devices')
+    .select('id')
+    .eq('code', code)
+    .eq('ip', ip)
+    .eq('user_agent', userAgent)
+    .order('last_seen', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!similar) return false;
+  await supabase
+    .from('youtube_keyword_master_code_devices')
+    .update({ device_id: deviceId, last_seen: new Date().toISOString(), ip, user_agent: userAgent })
+    .eq('id', similar.id);
+  return true;
+}
+
 async function verifyAccessCode(supabase: any, code: string, deviceId: string, ip: string, userAgent: string) {
   if (!/^[0-9]{6}$/.test(code) || !deviceId) return { ok: false, reason: 'invalid' };
   const { data: record, error } = await supabase
@@ -50,6 +69,9 @@ async function verifyAccessCode(supabase: any, code: string, deviceId: string, i
       .eq('id', existing.id);
     return { ok: true };
   }
+  if (await reuseSimilarDevice(supabase, code, deviceId, ip, userAgent)) {
+    return { ok: true };
+  }
   const { count } = await supabase
     .from('youtube_keyword_master_code_devices')
     .select('id', { count: 'exact', head: true })
@@ -58,6 +80,9 @@ async function verifyAccessCode(supabase: any, code: string, deviceId: string, i
   const { error: insertError } = await supabase
     .from('youtube_keyword_master_code_devices')
     .insert({ code, device_id: deviceId, ip, user_agent: userAgent });
+  if (String(insertError?.code) === '23505' && await reuseSimilarDevice(supabase, code, deviceId, ip, userAgent)) {
+    return { ok: true };
+  }
   if (insertError && String(insertError.code) !== '23505') return { ok: false, reason: 'error' };
   return { ok: true };
 }
