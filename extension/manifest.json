@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Keyword Master 자막 도우미",
+  "version": "1.0.0",
+  "description": "Keyword Master의 영상 분석에 유튜브 자막(스크립트)을 채워 넣는 도우미 확장입니다.",
+  "background": { "service_worker": "background.js" },
+  "permissions": ["scripting", "webRequest", "tabs"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

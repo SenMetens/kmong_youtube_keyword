@@ -1,0 +1,16 @@
+project_id = "youtube-keyword-master"
+
+[functions.youtube-keyword-master-collect]
+verify_jwt = false
+
+[functions.youtube-keyword-master-analyze]
+verify_jwt = false
+
+[functions.youtube-keyword-master-clear-analyses]
+verify_jwt = false
+
+[functions.youtube-keyword-master-verify-code]
+verify_jwt = false
+
+[functions.youtube-keyword-master-admin]
+verify_jwt = false
